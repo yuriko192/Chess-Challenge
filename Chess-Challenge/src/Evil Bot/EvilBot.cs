@@ -12,34 +12,17 @@ namespace ChessChallenge.Example
 
         public Move Think(Board board, Timer timer)
         {
-            Move[] allMoves = board.GetLegalMoves();
-
-            // Pick a random move to play if nothing better is found
-            Random rng = new();
-            Move moveToPlay = allMoves[rng.Next(allMoves.Length)];
-            int highestValueCapture = 0;
-
-            foreach (Move move in allMoves)
+            Move move;
+            try
             {
-                // Always play checkmate in one
-                if (MoveIsCheckmate(board, move))
-                {
-                    moveToPlay = move;
-                    break;
-                }
-
-                // Find highest value capture
-                Piece capturedPiece = board.GetPiece(move.TargetSquare);
-                int capturedPieceValue = pieceValues[(int)capturedPiece.PieceType];
-
-                if (capturedPieceValue > highestValueCapture)
-                {
-                    moveToPlay = move;
-                    highestValueCapture = capturedPieceValue;
-                }
+                (move, _) = CalculateMove(board, timer, 3);
+            }
+            catch (Exception e)
+            {
+                return board.GetLegalMoves()[0];
             }
 
-            return moveToPlay;
+            return move;
         }
 
         // Test if this move gives checkmate
@@ -49,6 +32,63 @@ namespace ChessChallenge.Example
             bool isMate = board.IsInCheckmate();
             board.UndoMove(move);
             return isMate;
+        }
+
+        public (Move, Int64) CalculateMove(Board board, Timer timer, int depth)
+        {
+            if (depth < 1)
+            {
+                return (new Move(), EvaluateBoard(board));
+            }
+
+            Move[] allMoves = board.GetLegalMoves();
+            if (allMoves.Length <= 0)
+            {
+                return (new Move(), 0);
+            }
+
+            Random rng = new();
+            Move moveToPlay = allMoves[rng.Next(allMoves.Length)];
+            Int64 highestValueMove = Int64.MinValue;
+
+            foreach (Move move in allMoves)
+            {
+                Int64 boardVal;
+
+                if (MoveIsCheckmate(board, move))
+                {
+                    return (move, Int64.MaxValue);
+                }
+
+                board.MakeMove(move);
+                (_, boardVal) = CalculateMove(board, timer, depth - 1);
+                boardVal *= -1;
+                board.UndoMove(move);
+
+                if (boardVal > highestValueMove)
+                {
+                    moveToPlay = move;
+                    highestValueMove = boardVal;
+                }
+            }
+
+            return (moveToPlay, highestValueMove);
+        }
+
+        public Int64 EvaluateBoard(Board board)
+        {
+            Int64 boardVal = 0;
+            foreach (var currentPieceList in board.GetAllPieceLists())
+            {
+                int isWhite = currentPieceList.IsWhitePieceList == board.IsWhiteToMove ? 1 : -1;
+                int currPieceCount = currentPieceList.Count;
+                PieceType currPieceType = currentPieceList.TypeOfPieceInList;
+                int currPieceValue = pieceValues[(int)currPieceType];
+
+                boardVal += isWhite * currPieceValue * currPieceCount;
+            }
+
+            return boardVal;
         }
     }
 }
