@@ -1,5 +1,6 @@
 ﻿using ChessChallenge.API;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 public class MyBot : IChessBot
@@ -7,7 +8,7 @@ public class MyBot : IChessBot
     // Piece values: null, pawn, knight, bishop, rook, queen, king
     int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
     private int CurrTurn = 0;
-    private int AlphaBetaStart = 0;
+    private int HighDepthStart = 5;
 
     public Move Think(Board board, Timer timer)
     {
@@ -15,8 +16,7 @@ public class MyBot : IChessBot
         Move move;
         try
         {
-            (move, _, _) = CalculateMove(board, timer, CurrTurn < AlphaBetaStart ? 3 : 3,
-                (Int64.MinValue, Int64.MinValue));
+            (move, _) = CalculateMove(board, timer, CurrTurn>HighDepthStart ? 4:6);
         }
         catch (Exception e)
         {
@@ -35,79 +35,40 @@ public class MyBot : IChessBot
         return isMate;
     }
 
-    public (Int64, Int64) UpdateAlphaBeta(Board board, Int64 result, (Int64, Int64) alphaBeta)
+    public Move[] CombineMoves(Move[] legalMoves, Move[] capturingMoves)
     {
-        if (CurrTurn < AlphaBetaStart)
+        List<Move> combinedMoves = new List<Move>(capturingMoves);
+        foreach (Move move in legalMoves)
         {
-            return alphaBeta;
-        }
-
-        if (board.IsWhiteToMove)
-        {
-            if (alphaBeta.Item1 < result)
+            if (!combinedMoves.Contains(move))
             {
-                alphaBeta.Item1 = result;
+                combinedMoves.Add(move);
             }
         }
-        else
-        {
-            if (alphaBeta.Item2 < result)
-            {
-                alphaBeta.Item2 = result;
-            }
-        }
-
-        return alphaBeta;
+        return combinedMoves.ToArray();
     }
 
-    public Move[] combineMove(Move[] capturing, Move[] moves) //Optimize
+
+
+
+    public (Move, Int64) CalculateMove(Board board, Timer timer, int depth, Int64 alpha = Int64.MinValue,
+        Int64 beta = Int64.MaxValue)
     {
-        if (CurrTurn < AlphaBetaStart)
-        {
-            return moves;
-        }
-
-        foreach (var currMove in moves)
-        {
-            bool notCapturing = true;
-            foreach (var capturingMove in capturing)
-            {
-                if (currMove == capturingMove)
-                {
-                    notCapturing = false;
-                    break;
-                }
-            }
-
-            if (notCapturing)
-            {
-                capturing.Append(currMove);
-            }
-        }
-
-        return capturing;
-    }
-
-    public (Move, Int64, (Int64, Int64)) CalculateMove(Board board, Timer timer, int depth, (Int64, Int64) alphaBeta)
-    {
-        Int64 alpha = board.IsWhiteToMove ? alphaBeta.Item1 : alphaBeta.Item2;
-
         if (depth < 1)
         {
-            Int64 result = EvaluateBoard(board);
-            return (new Move(), result, UpdateAlphaBeta(board, result, alphaBeta));
+            return (new Move(), EvaluateBoard(board));
         }
 
         Move[] allMoves = board.GetLegalMoves();
         if (allMoves.Length <= 0)
         {
-            return (new Move(), 0, UpdateAlphaBeta(board, 0, alphaBeta));
+            return (new Move(), 0);
         }
 
         Random rng = new();
         Move moveToPlay = allMoves[rng.Next(allMoves.Length)];
         Int64 highestValueMove = Int64.MinValue;
-        allMoves = combineMove(board.GetLegalMoves(true), allMoves);
+        allMoves = CombineMoves(allMoves, board.GetLegalMoves(true));
 
         foreach (Move move in allMoves)
         {
@@ -115,20 +76,12 @@ public class MyBot : IChessBot
 
             if (MoveIsCheckmate(board, move))
             {
-                return (move, Int64.MaxValue, UpdateAlphaBeta(board, Int64.MaxValue, alphaBeta));
+                return (move, Int64.MaxValue);
             }
 
             board.MakeMove(move);
-            (_, boardVal, alphaBeta) = CalculateMove(board, timer, depth - 1, alphaBeta);
+            (_, boardVal) = CalculateMove(board, timer, depth - 1, alpha, beta);
             boardVal *= -1;
-
-            //Alpha beta pruning
-            if (alpha > boardVal && CurrTurn >= AlphaBetaStart)
-            {
-                board.UndoMove(move);
-                return (moveToPlay, highestValueMove, alphaBeta);
-            }
-
             board.UndoMove(move);
 
             if (boardVal > highestValueMove)
@@ -136,10 +89,24 @@ public class MyBot : IChessBot
                 moveToPlay = move;
                 highestValueMove = boardVal;
             }
+
+            if (board.IsWhiteToMove)
+            {
+                alpha = Math.Max(alpha, highestValueMove);
+                if (alpha >= beta)
+                    break;
+            }
+            else
+            {
+                beta = Math.Min(beta, -highestValueMove);
+                if (alpha >= beta)
+                    break;
+            }
         }
 
-        return (moveToPlay, highestValueMove, UpdateAlphaBeta(board, highestValueMove, alphaBeta));
+        return (moveToPlay, highestValueMove);
     }
+
 
     public Int64 EvaluateBoard(Board board)
     {
